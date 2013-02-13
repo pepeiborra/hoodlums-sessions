@@ -1,48 +1,93 @@
-{-# LANGUAGE DeriveFoldable #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module Life where
 
-import Data.Array
-import Data.List
-import Graphics.Gloss
-import Data.Monoid
 import Control.Applicative
-import qualified Data.Foldable as F 
+import Control.Arrow
+import Control.Monad
+import Data.Array.Unboxed
+import Data.Attoparsec.Text hiding (take)
+import Data.List
+import Data.List.Split
+import Data.Maybe
+import Data.Text(Text)
 
-data Grid a = Grid (Array (Int,Int) a) (Int, Int)
-  deriving F.Foldable
+import qualified Data.Text as Text
+import qualified Data.Text.IO as Text
+
+data Grid a = Grid {-# UNPACK #-} !(Array (Int,Int) a) {-# UNPACK #-} !(Int, Int)
+
+instance Show (Grid Bool) where
+  show (Grid a _) = unlines $  rows
+    where
+      ((x0,y0),(w,h)) = bounds a
+      rows = [ [ if a!(i,j) then 'o' else '.'
+               | j <- [y0..h] ]
+             | i <- [x0..w]
+             ]
 
 class Comonad w where
   extract :: w a -> a
-  (=>>) :: w a -> (w a -> b) -> w b
+  extend :: (w a -> b) -> w a -> w b
 
-instance Comonad Grid where 
+{-# INLINE (=>>) #-}
+(=>>) = flip extend
+infixl 1 =>>
+
+instance Comonad Grid where
   extract (Grid a p) = a ! p
-  (Grid a p) =>> f   = Grid ( listArray (bounds a) . map (f . Grid a) $ indices a) p
+  {-# INLINE extend #-}
+  extend f (Grid a p) = Grid ( listArray (bounds a) . map (f . Grid a) $ indices a) p
 
-main :: IO ()
-main = do
-  gridString <- readFile "grid.life"
-  let grid = parseGrid gridString
-  runGame grid
+parseGrid :: Text -> Grid Bool
+parseGrid txt = fromMaybe (parsePlain txt) (parseRLE txt)
 
-parseGrid :: String -> Grid Bool
-parseGrid s = Grid ( listArray ((1,1), (width, height)) es) (1,1)
+parsePlain :: Text -> Grid Bool
+parsePlain s = Grid ( listArray ((1,1), (height,width)) es) (1,1)
   where
-    ls     = dropWhile ("!" `isPrefixOf`) $ lines s
-    width  = length $ head ls
+    ls     = dropWhile ("!" `Text.isPrefixOf`) $ Text.lines s
+    width  = Text.length $ head ls
     height = length ls
-    es     =  map (== 'O') $ concat $ transpose ls
+    es     = map ((||) <$> (== 'O') <*> (== 'o') ) $ Text.unpack $ Text.concat ls
 
-runGame :: Grid Bool -> IO ()
-runGame grid = simulate (InWindow "Life" (windowSize grid) (10,10))
-                black 10 grid render step
+--parseRLE :: Text -> Maybe (Grid Bool)
+parseRLE = either (const Nothing) Just
+         . parseOnly parser
+         . Text.unlines
+         . filter (not . ("#" `Text.isPrefixOf`))
+         . Text.lines
+  where
+
+   parser = do
+     (w,h) <- wh
+     skipWhile (not . isEndOfLine)
+     endOfLine
+     elems <- many elem
+     char '!'
+     _ <- takeText
+     let contents = expand (w,h) elems
+     let grid = Grid (listArray ((1,1),(h,w)) (contents ++ repeat False)) (1,1)
+     return grid
+    where
+     w = "x" .*> skipSpace *> "=" .*> skipSpace *> decimal
+     h = "y" .*> skipSpace *> "=" .*> skipSpace *> decimal
+     wh = (,) <$> w <*. "," <* skipSpace <*> h
+     elem = (,) <$> optional decimal <*> satisfy(inClass "bo$") <* skipSpace
+
+   expand (w,h)
+          = concat
+          . take h
+          . (++ repeat (replicate w False))
+          . map ( take w
+                . (++ repeat False)
+                . concatMap (\(count,tag) -> replicate count (tag == 'o')))
+          . splitOn [(1,'$')]
+          . concatMap (\(count,tag) -> if tag == '$' then replicate count (1,'$') else [(count,tag)])
+          . map (first (fromMaybe 1))
 
 size :: Grid a -> (Int, Int)
 size (Grid a _) = snd (bounds a)
-
-render :: Grid Bool -> Picture
-render g = color red $ F.fold $ g =>> renderCell
 
 gridIndex :: Grid a -> (Int, Int)
 gridIndex (Grid _ p) = p
@@ -50,31 +95,12 @@ gridIndex (Grid _ p) = p
 gridIndices :: Grid a -> Grid (Int, Int)
 gridIndices g = g =>> gridIndex
 
-renderCell :: Grid Bool -> Picture
-renderCell g | alive = translate (fromIntegral $ x * 10 - w * 5 - 15)
-                                 (fromIntegral $ y * (-10) + h * 5 + 15) $
-                                 rectangleSolid 8 8
-             | otherwise = mempty   
-  where
-    alive = extract g
-    (x, y) = gridIndex g
-    (w, h) = size g
-
-windowSize :: Grid a -> (Int, Int)
--- windowSize g = (x * 10, y * 10)
---   where (x, y) = size g
-windowSize _ = (500, 500)
-
-rule :: Bool -> Int-> Bool
-rule True  i = i == 2 || i == 3
-rule False i = i == 3
-
 moveGrid :: (Int, Int) -> Grid a -> Grid a
 moveGrid (xx,yy) (Grid a (x,y)) = Grid a (x',y')
   where
-    (w,h) = snd $ bounds a
-    x' = (x + xx - 1) `mod` w + 1
-    y' = (y + yy - 1) `mod` h + 1
+    ((w0,h0),(w,h)) = bounds a
+    x' = (x + xx - w0) `mod` w + w0
+    y' = (y + yy - w0) `mod` h + w0
 
 neighbours :: Grid Bool -> Int
 neighbours g = length . filter id $ bools
@@ -82,5 +108,5 @@ neighbours g = length . filter id $ bools
     bools = map (\o -> extract $ moveGrid o g) offsets
     offsets = [(x,y) | x <- [(-1)..1], y <- [(-1)..1], (x,y) /= (0,0)]
 
-step :: x -> Float -> Grid Bool -> Grid Bool
-step _ _ g = g =>> (rule <$> extract <*> neighbours)
+stepGrid :: x -> Float -> Grid Bool -> Grid Bool
+stepGrid _ _ g = g =>> (rule <$> extract <*> neighbours)
