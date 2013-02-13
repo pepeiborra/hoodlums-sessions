@@ -1,0 +1,358 @@
+1 patch for repository http://code.ouroborus.net/repa/repa-head:
+
+Mon Feb 11 08:40:13 GMT 2013  pepeiborra@gmail.com
+  * BoundMirror for 2D stencils
+
+New patches:
+
+[BoundMirror for 2D stencils
+pepeiborra@gmail.com**20130211084013
+ Ignore-this: c5d2bfc25f39959e0506b10486ce0c0
+] hunk ./repa/Data/Array/Repa/Stencil/Base.hs 20
+ 
+   -- | Clamp points outside to the same value as the edge pixel.
+ 	| BoundClamp
++
++        -- | Mirroring at the boundary
++        | BoundMirror
+ 	deriving (Show)
+ 
+ 
+hunk ./repa/Data/Array/Repa/Stencil/Dim2.hs 118
+                 BoundFixed c    -> c
+                 BoundConst c    -> unsafeAppStencilCursor2_const addDim stencil c arr ix
+                 BoundClamp      -> unsafeAppStencilCursor2_clamp addDim stencil arr ix
++                BoundMirror     -> unsafeAppStencilCursor2_mirror addDim stencil arr ix
+    in
+     --  internal region
+         APart sh (Range (Z :.    inY :.    inX) (Z :.    inH :.    inW) inInternal) arrInternal
+hunk ./repa/Data/Array/Repa/Stencil/Dim2.hs 273
+                 , " It must fit within a 7x7 tile to be compiled statically." ]
+ 
+ 
++-- | Like above, but clamp out of bounds array values to the closest real value.
++unsafeAppStencilCursor2_mirror
++	:: forall r a
++	.  Source r a
++	=> (DIM2 -> DIM2 -> DIM2)
++	-> Stencil DIM2 a
++	-> Array r DIM2 a
++	-> DIM2
++	-> a
++
++{-# INLINE unsafeAppStencilCursor2_mirror #-}
++unsafeAppStencilCursor2_mirror shift
++	   (StencilStatic sExtent zero loads)
++	   arr cur
++
++	| _ :. sHeight      :. sWidth	    <- sExtent
++	, _ :. (I# aHeight) :. (I# aWidth)  <- extent arr
++	, sHeight <= 7, sWidth <= 7
++	= let
++		-- Get data from the manifest array.
++		{-# INLINE getData #-}
++		getData :: DIM2 -> a
++		getData (Z :. (I# y) :. (I# x))
++		 = wrapLoadX x y
++
++                {-# NOINLINE wrapLoadX #-}
++		wrapLoadX :: Int# -> Int# -> a
++		wrapLoadX !x !y
++		 | x <# 0#	= wrapLoadY (x +# aWidth)      	   y
++		 | x >=# aWidth	= wrapLoadY (x -# aWidth) y
++		 | otherwise    = wrapLoadY x y
++
++		{-# NOINLINE wrapLoadY #-}
++		wrapLoadY :: Int# -> Int# -> a
++		wrapLoadY !x !y
++		 | y <#  0#	 = loadXY x (y +# aHeight)
++		 | y >=# aHeight = loadXY x (y -# aHeight)
++		 | otherwise     = loadXY x y
++
++		{-# INLINE loadXY #-}
++		loadXY :: Int# -> Int# -> a
++		loadXY !x !y
++		 = arr `unsafeIndex` (Z :. (I# y) :.  (I# x))
++
++		-- Build a function to pass data from the array to our stencil.
++		{-# INLINE oload #-}
++		oload oy ox
++		 = let	!cur' = shift (Z :. oy :. ox) cur
++		   in	loads (Z :. oy :. ox) (getData cur')
++
++	   in	template7x7 oload zero
++
++        | otherwise
++        = error $ unlines 
++                [ "mapStencil2: Your stencil is too big for this method."
++                , " It must fit within a 7x7 tile to be compiled statically." ]
++
++
+ -- | Data template for stencils up to 7x7.
+ template7x7
+ 	:: (Int -> Int -> a -> a)
+
+Context:
+
+[repa-eater: add examples and more notes
+Ben Lippmeier <benl@ouroborus.net>**20130208132018
+ Ignore-this: d16849e7b1243f8bf38ad9c6575e6b5f
+] 
+[Add first eater functions
+Ben Lippmeier <benl@ouroborus.net>**20130208111708
+ Ignore-this: bf56875e5e3566f099c6f3d847e83ad3
+] 
+[wibbles
+Ben Lippmeier <benl@ouroborus.net>**20130208111536
+ Ignore-this: aa676d407e73a33a40a1992d8bc6df4d
+] 
+[repa-flow: give up on Stall/unzip idea
+Ben Lippmeier <benl@ouroborus.net>**20130208043448
+ Ignore-this: 2ee5f960b42c148383287344ffca872c
+] 
+[Makefile tweaks
+Ben Lippmeier <benl@ouroborus.net>**20130208033146
+ Ignore-this: e967354e2a02444632daf551a4da23a0
+] 
+[repa-flow: add 1 and 2 way builders
+Ben Lippmeier <benl@ouroborus.net>**20130201052416
+ Ignore-this: 96d763eec647e6425a1da40613991d0c
+] 
+[repa-flow: add unzip for sequential flows
+Ben Lippmeier <benl@ouroborus.net>**20130131081842
+ Ignore-this: 5cca1db7a703c0efb75d1390649357a3
+] 
+[Add stall constructor to sequential streams
+Ben Lippmeier <benl@ouroborus.net>**20130131065604
+ Ignore-this: c5b4115fd0d04383e87e38fe3b21bcfd
+] 
+[repa-flow: fix fusion problems in pack
+Ben Lippmeier <benl@ouroborus.net>**20121207075035
+ Ignore-this: 274936ac4b4a63ad9cb63fdfe4af4346
+] 
+[repa-flow: fix fusion problems with quickHull_dets
+Ben Lippmeier <benl@ouroborus.net>**20121207060434
+ Ignore-this: 450e4799e76a6b96994a21a54de3eb18
+] 
+[repa-bulk: docs to foldAll
+Ben Lippmeier <benl@ouroborus.net>**20121207051438
+ Ignore-this: 9ca3cc653afde260d4cb2f9a668e35b6
+] 
+[repa-bulk: use IORef to combine result of foldAll
+Ben Lippmeier <benl@ouroborus.net>**20121207045854
+ Ignore-this: d91f7318ebc24721d35f36d22e9f9512
+] 
+[repa-vector: hide event logging from the inliner
+Ben Lippmeier <benl@ouroborus.net>**20121207044255
+ Ignore-this: e89a1632d7152be79c9e6f6a9ffa1327
+] 
+[repa-vector: add compute wrapper for delayed arrays
+Ben Lippmeier <benl@ouroborus.net>**20121207040736
+ Ignore-this: 70c35b86528dd6f899d2a9f77491bbba
+] 
+[repa-vector: add compute wrappers for flows
+Ben Lippmeier <benl@ouroborus.net>**20121207040020
+ Ignore-this: 9bbf2cee7cae0c8f456102f3338b4dcd
+] 
+[repa-flow: refactor unflow framework
+Ben Lippmeier <benl@ouroborus.net>**20121207033130
+ Ignore-this: f4f012d00cc0ab9f57ead6c4653cca4
+] 
+[repa-vector: add Compute class
+Ben Lippmeier <benl@ouroborus.net>**20121207014417
+ Ignore-this: c728dbab65f8a97a5d2fbf4a2086c883
+] 
+[repa-flow: reunsafe some ops, start SolverChunks
+Ben Lippmeier <benl@ouroborus.net>**20121206125419
+ Ignore-this: a2bca82d3a1543a2a2a44a88de3a054e
+] 
+[Quickhull: add timing code
+Ben Lippmeier <benl@ouroborus.net>**20121206114709
+ Ignore-this: 2202bcb80bc85b62cae7c2779c9790ac
+] 
+[repa-flow: remove tracing code
+Ben Lippmeier <benl@ouroborus.net>**20121206113033
+ Ignore-this: fbda782a2f92b8ee54b60d39a8d49fea
+] 
+[repa-examples: fix bug in quickhull
+Ben Lippmeier <benl@ouroborus.net>**20121206064029
+ Ignore-this: 4a89917d9d44b1561dbb440a06dc68b9
+] 
+[repa-flow: hacks on appends, doesn't work for -N2
+Ben Lippmeier <benl@ouroborus.net>**20121206050742
+ Ignore-this: c6574c2c10f75597503fe110122b433c
+] 
+[repa-flow: wibbles to 'here' tags
+Ben Lippmeier <benl@ouroborus.net>**20121206032323
+ Ignore-this: 9438c47acb4872010afb4789f785cb33
+] 
+[repa-flow: more bounds checks
+Ben Lippmeier <benl@ouroborus.net>**20121206031116
+ Ignore-this: a4f1bb3a61da7853ac17c0a38361cfbb
+] 
+[repa-examples: fixup SMVM example
+Ben Lippmeier <benl@ouroborus.net>**20121203124207
+ Ignore-this: 12be473389fa6e8f68d80935a8dedcd5
+] 
+[repa-flow: fix stupid bugs in segmented combine
+Ben Lippmeier <benl@ouroborus.net>**20121203123601
+ Ignore-this: 51e451f5116ba45de91d04cef8049380
+] 
+[repa-flow: fix vector size bug in combine
+Ben Lippmeier <benl@ouroborus.net>**20121203115435
+ Ignore-this: c7442af4a72d6d66d599729a03e131ff
+] 
+[repa-flow: more bounds checks
+Ben Lippmeier <benl@ouroborus.net>**20121203113830
+ Ignore-this: 906840af99ef2f0e01de57b3d2dfa1bc
+] 
+[repa-flow: more bounds checks
+Ben Lippmeier <benl@ouroborus.net>**20121203110408
+ Ignore-this: a6ef496f57697bcd903b8204f8f85fdf
+] 
+[repa-bulk: reinstate bounds checks
+Ben Lippmeier <benl@ouroborus.net>**20121203050917
+ Ignore-this: d3a506a00f5b645223e06377e32cd208
+] 
+[repa-flow: add missing module
+Ben Lippmeier <benl@ouroborus.net>**20121203104113
+ Ignore-this: edf4aed705fcd492451e117814030bf0
+] 
+[repa-flow: reinstate bounds checks
+Ben Lippmeier <benl@ouroborus.net>**20121203044943
+ Ignore-this: 99d3bf1ea145692a8f812e8033ecb891
+] 
+[repa-vector: fix bug in replicates
+Ben Lippmeier <benl@ouroborus.net>**20121203035701
+ Ignore-this: 70afd60bacda715eb56c384276c38755
+] 
+[repa-examples: new quickhull base case
+Ben Lippmeier <benl@ouroborus.net>**20121203024106
+ Ignore-this: 2290470097db57b817032a5ad8948234
+] 
+[repa-vector: add append and traverse wrappers
+Ben Lippmeier <benl@ouroborus.net>**20121203023418
+ Ignore-this: 315e5de8f2a32b00bbee7a8baf61d62d
+] 
+[repa-vector: add wrappers for bulk folds
+Ben Lippmeier <benl@ouroborus.net>**20121203020110
+ Ignore-this: b44f914051e7ca4fbff3a92d324ca3ad
+] 
+[repa-vector: follow changes in repa-flow
+Ben Lippmeier <benl@ouroborus.net>**20121130074452
+ Ignore-this: 572faf3919ac03cce68ba79f4a4c078f
+] 
+[repa-flow: doc wibbles. rename r -> mode
+Ben Lippmeier <benl@ouroborus.net>**20121130071730
+ Ignore-this: 9c2897e4ae4e95069f31ab0345312faa
+] 
+[repa-flow: separate flow API from unboxed vectors
+Ben Lippmeier <benl@ouroborus.net>**20121130065525
+ Ignore-this: 3c75385891ef7c070c05d778a34e2c06
+] 
+[repa-flow: use Elt class instead of Touch
+Ben Lippmeier <benl@ouroborus.net>**20121130064615
+ Ignore-this: a68efe6de48f8f56118c40cdb2c6e6a4
+] 
+[repa-flow: drop replicatesUnboxed
+Ben Lippmeier <benl@ouroborus.net>**20121130064057
+ Ignore-this: 57f754c8b92f9c6c8dd26336bb396bde
+] 
+[repa-flow: thread explicit gang through the flow functions
+Ben Lippmeier <benl@ouroborus.net>**20121130064020
+ Ignore-this: 9883f1c66a404164282b562fa45865bb
+] 
+[repa-vector: rename Fold -> Folds
+Ben Lippmeier <benl@ouroborus.net>**20121130061910
+ Ignore-this: af62ab0d1842e4e9793ab29509ce6ccd
+] 
+[Doc wibbles
+Ben Lippmeier <benl@ouroborus.net>**20121130060730
+ Ignore-this: 5d217847dd76b942c7af7dff0dbbb643
+] 
+[repa-bulk: update Elt to use the version with generic deriving
+Ben Lippmeier <benl@ouroborus.net>**20121130055625
+ Ignore-this: 21567504ba712b7ad37c8eff640d03f4
+] 
+[repa-bulk: slurp cursored filling functions
+Ben Lippmeier <benl@ouroborus.net>**20121130055054
+ Ignore-this: 20c3ac1f06b69d8b8bed25027f2e0b34
+] 
+[repa-bulk: slurp interleaved filling
+Ben Lippmeier <benl@ouroborus.net>**20121130051852
+ Ignore-this: 7a29eb9442d3fd905a6098f99095cfa4
+] 
+[repa-bulk: remove the evil top-level gang thing
+Ben Lippmeier <benl@ouroborus.net>**20121130051128
+ Ignore-this: cc47f58c8df8c59b0ca7cfa91151c472
+] 
+[repa-bulk: slurp parallel reductions
+Ben Lippmeier <benl@ouroborus.net>**20121130045745
+ Ignore-this: f2e7fc8df4221ac9586edafd57b9c532
+] 
+[repa-bulk: slurp seq reduction functions
+Ben Lippmeier <benl@ouroborus.net>**20121130043503
+ Ignore-this: abf6f864449c815600604a4f3ad54f46
+] 
+[repa-bulk: unbox some things
+Ben Lippmeier <benl@ouroborus.net>**20121130041616
+ Ignore-this: 50ad205b4eece67704681541b1c64220
+] 
+[repa-bulk: slurp across chunked filling code
+Ben Lippmeier <benl@ouroborus.net>**20121130021530
+ Ignore-this: 7895fde53c79b466772073dbb267a8e9
+] 
+[repa-bulk: start package, slurp across gang code
+Ben Lippmeier <benl@ouroborus.net>**20121130020017
+ Ignore-this: 56766c5fd067dde6448eb81252301e94
+] 
+[repa-examples: finish quickhull hsplit_l
+Ben Lippmeier <benl@ouroborus.net>**20121130015416
+ Ignore-this: 82b1c87cc118038162a2561e64aa18df
+] 
+[repa-vector: add combines2 wrapper
+Ben Lippmeier <benl@ouroborus.net>**20121130014125
+ Ignore-this: 5a198dd445cc6c2c3f394ada4bb327f8
+] 
+[repa-flow: add sequential combines2
+Ben Lippmeier <benl@ouroborus.net>**20121130013141
+ Ignore-this: 68a79c39ecd827a17c96002c3f7181d
+] 
+[repa-examples: use combine in new Quickhull
+Ben Lippmeier <benl@ouroborus.net>**20121130002927
+ Ignore-this: 50762c670e27e20f6fae39191dbd6c6e
+] 
+[repa-vector: add seq combine
+Ben Lippmeier <benl@ouroborus.net>**20121129124901
+ Ignore-this: 8efddf80efdcd4fd22aa761be4f702e5
+] 
+[repa-examples: use appends in new Quickhull
+Ben Lippmeier <benl@ouroborus.net>**20121129120702
+ Ignore-this: d1dcf3b679906cb9859fd06b5fec260c
+] 
+[repa-flow: fix bug in appends
+Ben Lippmeier <benl@ouroborus.net>**20121129114827
+ Ignore-this: af4234c5570823483237ce3987889ba
+] 
+[repa-vector: add appends wrappers
+Ben Lippmeier <benl@ouroborus.net>**20121129050607
+ Ignore-this: 94d4ff7f4986bea7ad84227a36081c64
+] 
+[repa-flow: add parallel appends
+Ben Lippmeier <benl@ouroborus.net>**20121129044125
+ Ignore-this: aa98ae4869c3db2ed735c83345a24d9
+] 
+[repa-flow: cleanup unboxing junk in appends
+Ben Lippmeier <benl@ouroborus.net>**20121129041828
+ Ignore-this: 620a67ff445911b1c50964339d4d7efe
+] 
+[repa-vector: add Read/Show for Array U
+Ben Lippmeier <benl@ouroborus.net>**20121129010500
+ Ignore-this: d89ed8355d6c65be45c70804e50aa86d
+] 
+[TAG Release 3.2.3.1
+Ben Lippmeier <benl@ouroborus.net>**20121128035933
+ Ignore-this: decad0f3a8a190d25fda352020b74077
+] 
+Patch bundle hash:
+997d9562856dc508192eb57467bba9256f9d00ab
