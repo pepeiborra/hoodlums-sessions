@@ -1,24 +1,14 @@
-{-# LANGUAGE DeriveFunctor #-}
-{-# LANGUAGE DeriveFoldable #-}
-{-# LANGUAGE ViewPatterns #-}
-{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE TemplateHaskell, QuasiQuotes #-}
-{-# LANGUAGE NoMonomorphismRestriction #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE UnboxedTuples #-}
 
-import Control.Applicative
+--module Life where
 import Control.Arrow
 import Control.Monad
-import Control.Exception
 
 import qualified Data.Array as Array
-import Data.Char
-import Data.IORef
-import Data.Foldable as F (Foldable(fold,foldMap))
 import Data.Monoid
 import qualified Data.Text.IO as Text
 
@@ -27,12 +17,8 @@ import Data.Array.Repa.Stencil
 import Data.Array.Repa.Stencil.Dim2
 import qualified Data.Array.Repa             as A
 import qualified Data.Array.Repa.Eval        as A
-import qualified Data.Array.Repa.Repr.Vector as A
-import qualified Data.Array.Repa.Operators.Traversal as A
 
-import qualified Data.Vector           as V
 import qualified Data.Vector.Generic   as VG
-import qualified Data.Vector.Primitive as VP
 import qualified Data.Vector.Unboxed   as VU
 import qualified Data.Vector.Generic.Mutable as VM
 
@@ -107,7 +93,7 @@ stencilFun !ix (Me val) !acc =
 toBitmap = A.map (\(Me x) -> if x then red else black)
 
 
--- Various boilerplates
+-- Various boilerplaye
 
 {- Boilerplate code to store cells in unboxed arrays -}
 newtype instance VU.MVector s Cell = MV_Cell (VU.MVector s Bool)
@@ -131,7 +117,6 @@ instance VU.Unbox Cell
 -- Required by the computeP application, not actually used
 instance Num Cell
 
--- Required by repa
 instance A.Elt Cell where
   {-# INLINE touch #-}
   touch (Me b)
