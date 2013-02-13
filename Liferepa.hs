@@ -3,6 +3,7 @@
 import Control.Arrow
 
 import qualified Data.Array as Array
+import qualified Data.Text.IO as Text
 
 import Data.Array.Repa (DIM2(..), (:.)(..), Z(..), U)
 import qualified Data.Array.Repa             as A
@@ -20,7 +21,7 @@ screen = (1366,768)
 
 main = do
   args <- getArgs
-  gridstring <- getContents
+  gridstring <- Text.getContents
   let grid = parseGrid gridstring
       (w,h) = size grid
       (w', h') = (fst screen `div` w, snd screen `div` h)
