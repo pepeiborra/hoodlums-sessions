@@ -95,6 +95,10 @@ gridIndex (Grid _ p) = p
 gridIndices :: Grid a -> Grid (Int, Int)
 gridIndices g = g =>> gridIndex
 
+rule :: Bool -> Int-> Bool
+rule True  i = i == 2 || i == 3
+rule False i = i == 3
+
 moveGrid :: (Int, Int) -> Grid a -> Grid a
 moveGrid (xx,yy) (Grid a (x,y)) = Grid a (x',y')
   where
